@@ -30,13 +30,13 @@ def get_arguments():
 
     # Data
     parser.add_argument("--data-dir", type=Path, help="path to dataset")
-    parser.add_argument(
-        "--train-percent",
-        default=100,
-        type=int,
-        choices=(100, 10, 1),
-        help="size of traing set in percent",
-    )
+    #parser.add_argument(
+        #"--train-percent",
+        #default=100,
+        #type=int,
+        #choices=(100, 10, 1),
+        #help="size of traing set in percent",
+    #)
 
     # Checkpoint
     parser.add_argument("--pretrained", type=Path, help="path to pretrained model")
