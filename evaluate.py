@@ -35,8 +35,6 @@ def get_arguments():
                         help='Path to the dataset')
     parser.add_argument("--dataset-name", type=str, default="cifar10", required=False,
                         help='Dataset name')
-    parser.add_argument("--img-dim", type=int, default=32, required=False,
-                        help='Data image size')
     #parser.add_argument(
         #"--train-percent",
         #default=100,
@@ -151,7 +149,14 @@ def main_worker(args):
     backbone_state_dict = {s.replace("backbone.", ""): state_dict[s] for s in state_dict if "backbone." in s}
     backbone.load_state_dict(backbone_state_dict, strict=False)
 
-    head = nn.Linear(embedding, 1000)
+    #adjust the number of classes depending on the selected dataset
+    if args.dataset_name == 'cifar10':
+        head = nn.Linear(embedding, 10)
+    elif args.dataset_name == 'cifar100':
+        head = nn.Linear(embedding, 100)
+    elif args.dataset_name == 'imagenet':
+        head = nn.Linear(embedding, 1000)
+
     head.weight.data.normal_(mean=0.0, std=0.01)
     head.bias.data.zero_()
     model = nn.Sequential(backbone, head)
@@ -186,27 +191,33 @@ def main_worker(args):
         download = False
     else:
         download = True
+    
+    #normalize = transforms.Normalize(
+        #mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    #)
 
     if args.dataset_name == 'cifar10' or args.dataset_name == 'cifar100':
+        image_dim = 32
         resize_dim = 35
     elif args.dataset_name == 'imagenet':
+        image_dim = 224
         resize_dim = 256
 
     transform_train = transforms.Compose(
-                        [
-                            transforms.RandomResizedCrop(args.img_dim),
-                            transforms.RandomHorizontalFlip(),
-                            transforms.ToTensor(),
-                        ]
-                    )
+                    [
+                        transforms.RandomResizedCrop(image_dim),
+                        transforms.RandomHorizontalFlip(),
+                        transforms.ToTensor(),
+                    ]
+                )
     
     transform_val = transforms.Compose(
-                        [
-                            transforms.Resize(resize_dim),
-                            transforms.CenterCrop(args.img_dim),
-                            transforms.ToTensor(),
-                        ]
-                   )
+                      [
+                          transforms.Resize(resize_dim),
+                          transforms.CenterCrop(image_dim),
+                          transforms.ToTensor(),
+                      ]
+                )
 
     if args.dataset_name == 'cifar10':
         dataset_train = datasets.CIFAR10(root=args.data_dir, train=True, download=download, transform=transform_train)
@@ -223,9 +234,6 @@ def main_worker(args):
     # Data loading code
     #traindir = args.data_dir / "train"
     #valdir = args.data_dir / "val"
-    #normalize = transforms.Normalize(
-    #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-    #)
 
     #train_dataset = datasets.ImageFolder(
         #traindir,
