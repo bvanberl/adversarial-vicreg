@@ -124,3 +124,8 @@ If you find this repository useful, please consider giving a star :star: and cit
   year    = {2022},
 }
 ```
+
+Install Mlflow for tracking
+```
+pip install mlflow
+```
