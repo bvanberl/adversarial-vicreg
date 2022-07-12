@@ -431,14 +431,16 @@ if __name__ == "__main__":
     tracking_uri = "http://ec2-18-206-121-84.compute-1.amazonaws.com"
     mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+    expr_name = "main_vicreg.py"
     try:
-        expr_name = "test" # create a new experiment (do not replace)
+        # create a new experiment (do not replace)
         s3_bucket = "s3://mlflow-research-runs" # replace this value
         experiment = mlflow.create_experiment (expr_name, s3_bucket)
-        mlflow.set_experiment (expr_name)
-    except:
-        experiment = mlflow.get_experiment_by_name("test")
-    
+    except Exception as e:
+        # print (e)
+        experiment = mlflow.get_experiment_by_name(expr_name)
+    mlflow.set_experiment (expr_name)
+        
     with mlflow.start_run() as run:  
     # Log our parameters into mlflow
       for key, value in vars(args).items():
