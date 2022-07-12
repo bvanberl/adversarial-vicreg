@@ -125,6 +125,9 @@ def main():
     #args.dist_url = f"tcp://localhost:{random.randrange(49152, 65535)}"
     #args.world_size = args.ngpus_per_node
     #torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
+    tracking_uri = "http://ec2-18-206-121-84.compute-1.amazonaws.com"
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
     expr_name = "evaluate.py"
     try:
         # create a new experiment (do not replace)
