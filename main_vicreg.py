@@ -251,9 +251,9 @@ class VICReg(nn.Module):
         self.adv_train = True if args.adv_coeff > 0 else False
         self.model_stacked = nn.Sequential(self.backbone, self.projector)
 
-        print("Architecture details:")
-        print(self.backbone)
-        print(self.projector)
+        #print("Architecture details:")
+        #print(self.backbone)
+        #print(self.projector)
 
     def vicreg_loss(self, x, y):
         repr_loss = F.mse_loss(x, y)
