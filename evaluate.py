@@ -22,6 +22,8 @@ from torchvision import datasets, transforms
 import torch
 
 import resnet
+import mlflow
+import mlflow.pytorch
 
 gpu = torch.device("cuda")
 
@@ -123,7 +125,21 @@ def main():
     #args.dist_url = f"tcp://localhost:{random.randrange(49152, 65535)}"
     #args.world_size = args.ngpus_per_node
     #torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
-    main_worker(args)
+    expr_name = "evaluate.py"
+    try:
+        # create a new experiment (do not replace)
+        s3_bucket = "s3://mlflow-research-runs" # replace this value
+        experiment = mlflow.create_experiment (expr_name, s3_bucket)
+    except Exception as e:
+        print (e)
+        experiment = mlflow.get_experiment_by_name(expr_name)
+    mlflow.set_experiment (expr_name)
+
+    with mlflow.start_run() as run:  
+    # Log our parameters into mlflow
+        for key, value in vars(args).items():
+            mlflow.log_param(key, value)
+        main_worker(args)
 
 #def main_woker(gpu, args):
 def main_worker(args):
@@ -324,6 +340,8 @@ def main_worker(args):
                     )
                     print(json.dumps(stats))
                     print(json.dumps(stats), file=stats_file)
+                    for key, value in stats.items():
+                        mlflow.log_metric(key, value, step=step)
 
         # evaluate
         model.eval()
@@ -349,6 +367,8 @@ def main_worker(args):
             )
             print(json.dumps(stats))
             print(json.dumps(stats), file=stats_file)
+            for key, value in stats.items():
+                mlflow.log_metric(key, value, step=step)
 
         scheduler.step()
         if args.rank == 0:
