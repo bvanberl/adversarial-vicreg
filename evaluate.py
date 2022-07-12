@@ -22,6 +22,8 @@ from torchvision import datasets, transforms
 import torch
 
 import resnet
+import mlflow
+import mlflow.pytorch
 
 gpu = torch.device("cuda")
 
@@ -79,7 +81,7 @@ def get_arguments():
     )
     parser.add_argument(
         "--lr-head",
-        default=0.3,
+        default=0.01,
         type=float,
         metavar="LR",
         help="classifier base learning rate",
@@ -104,6 +106,14 @@ def get_arguments():
         #help="number of data loader workers",
     #)
 
+    #Augmentation
+    parser.add_argument("--min-crop-area", type=float, default=0.75,
+                        help='Minimum crop area, as fraction of original area')
+    parser.add_argument("--max-crop-area", type=float, default=1.0,
+                        help='Maximum crop area, as fraction of original area')
+    parser.add_argument("--flip-prob", type=float, default=0.5,
+                        help='Probability of applying horizontal clip')
+
     return parser
 
 
@@ -123,7 +133,24 @@ def main():
     #args.dist_url = f"tcp://localhost:{random.randrange(49152, 65535)}"
     #args.world_size = args.ngpus_per_node
     #torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
-    main_worker(args)
+    tracking_uri = "http://ec2-18-206-121-84.compute-1.amazonaws.com"
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+    expr_name = "evaluate.py"
+    try:
+        # create a new experiment (do not replace)
+        s3_bucket = "s3://mlflow-research-runs" # replace this value
+        experiment = mlflow.create_experiment (expr_name, s3_bucket)
+    except Exception as e:
+        print (e)
+        experiment = mlflow.get_experiment_by_name(expr_name)
+    mlflow.set_experiment (expr_name)
+
+    with mlflow.start_run() as run:  
+    # Log our parameters into mlflow
+        for key, value in vars(args).items():
+            mlflow.log_param(key, value)
+        main_worker(args)
 
 #def main_woker(gpu, args):
 def main_worker(args):
@@ -205,8 +232,8 @@ def main_worker(args):
 
     transform_train = transforms.Compose(
                     [
-                        transforms.RandomResizedCrop(image_dim),
-                        transforms.RandomHorizontalFlip(),
+                        transforms.RandomResizedCrop(image_dim, scale=(args.min_crop_area, args.max_crop_area)),
+                        transforms.RandomHorizontalFlip(p=args.flip_prob),
                         transforms.ToTensor(),
                     ]
                 )
@@ -324,6 +351,8 @@ def main_worker(args):
                     )
                     print(json.dumps(stats))
                     print(json.dumps(stats), file=stats_file)
+                    for key, value in stats.items():
+                        mlflow.log_metric(key, value, step=step)
 
         # evaluate
         model.eval()
@@ -349,6 +378,8 @@ def main_worker(args):
             )
             print(json.dumps(stats))
             print(json.dumps(stats), file=stats_file)
+            for key, value in stats.items():
+                mlflow.log_metric(key, value, step=step)
 
         scheduler.step()
         if args.rank == 0:
