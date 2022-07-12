@@ -32,7 +32,7 @@ def get_arguments():
 						help='Dataset name')
 	parser.add_argument(
 		"--exp-dir",
-		default="./checkpoint/lincls_001/",
+		default="./checkpoint/lincls/",
 		type=Path,
 		metavar="DIR",
 		help="path to checkpoint directory",
