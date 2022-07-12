@@ -11,12 +11,14 @@ import tqdm
 
 from torch import nn, optim
 from torchvision import datasets, transforms
+from torch.autograd import Variable
 import torch
 from pgd import pgd
 
 import resnet
 
 gpu = torch.device("cuda")
+device = gpu
 
 def get_arguments():
 
@@ -38,11 +40,13 @@ def get_arguments():
 
 	#Optim
 	parser.add_argument(
-        "--batch-size", default=256, type=int, metavar="N", help="mini-batch size"
-    )
+		"--batch-size", default=200, type=int, metavar="N", help="mini-batch size"
+	)
 
 	# Model
 	parser.add_argument("--arch", type=str, default="resnet18")
+	parser.add_argument("--mlp", default="512-512-512",
+						help='Size and number of layers of the MLP expander head')
 
 	#Augmentation
 	parser.add_argument("--min-crop-area", type=float, default=0.75,
@@ -51,23 +55,24 @@ def get_arguments():
 						help='Maximum crop area, as fraction of original area')
 	parser.add_argument("--flip-prob", type=float, default=0.5,
 						help='Probability of applying horizontal clip')
-	
+
 	#pgd
-	parser.add_argument("--pgd-step-size", type=float, default=0.003,
-                        help='PGD attack step size')
-    parser.add_argument("--pgd-epsilon", type=float, default=0.031,
-                        help='PGD attack budget')
-    parser.add_argument("--pgd-perturb-steps", type=int, default=10,
-                        help='PGD attack number of steps')
-    parser.add_argument("--pgd-distance", type=str, default="l_inf",
-                        help='Norm for PGD attack (either "l_inf" or "l_2"')
+	parser.add_argument('--epsilon', default=0.031,
+						help='perturbation')
+	parser.add_argument('--num-steps', default=20,
+						help='perturb number of steps')
+	parser.add_argument('--step-size', default=0.003,
+						help='perturb step size')
+	parser.add_argument('--random',
+						default=True,
+						help='random initialization for PGD')
 
 	return parser
 
-def main():
+parser = get_arguments()
+args = parser.parse_args()
 
-	parser = get_arguments()
-	args = parser.parse_args()
+def main():
 
 	evaluate_robust(args)
 
@@ -106,8 +111,8 @@ def evaluate_robust(args):
 
 	transform_val = transforms.Compose(
 					  [
-						  transforms.Resize(resize_dim),
-						  transforms.CenterCrop(image_dim),
+						  #transforms.Resize(resize_dim),
+						  #transforms.CenterCrop(image_dim),
 						  transforms.ToTensor(),
 					  ]
 				)
@@ -123,7 +128,7 @@ def evaluate_robust(args):
 
 	val_loader = torch.utils.data.DataLoader(
 		dataset_val,
-		batch_size=1,
+		batch_size=args.batch_size,
 		pin_memory=False,
 		shuffle=False,
 	)
@@ -131,59 +136,54 @@ def evaluate_robust(args):
 	#evaluate
 	model.eval()
 
-	test_accu = 0
+	eval_adv_test_whitebox(model, gpu, val_loader)
 
-	#top1 = AverageMeter("Acc@1")
-	with torch.no_grad():
-		for images, target in val_loader:
-			output = model(images.cuda(gpu, non_blocking=True))
-			if torch.argmax(output.cuda(gpu, non_blocking=True)) == target.cuda(gpu, non_blocking=True):
-				test_accu += 1
-			#acc1 = accuracy(output, target.cuda(gpu, non_blocking=True), topk=(1,))
-			#top1.update(acc1[0].item(), images.size(0))
-			#print("test accuracy: " + str(acc1))
+def _pgd_whitebox(model,
+				  X,
+				  y,
+				  epsilon=args.epsilon,
+				  num_steps=args.num_steps,
+				  step_size=args.step_size):
+	out = model(X)
+	err = (out.data.max(1)[1] != y.data).float().sum()
+	X_pgd = Variable(X.data, requires_grad=True)
+	if args.random:
+		random_noise = torch.FloatTensor(*X_pgd.shape).uniform_(-epsilon, epsilon).to(device)
+		X_pgd = Variable(X_pgd.data + random_noise, requires_grad=True)
 
-		print("test accuracy: " + str(test_accu/len(dataset_val)))
+	for _ in range(num_steps):
+		opt = optim.SGD([X_pgd], lr=1e-3)
+		opt.zero_grad()
 
-class AverageMeter(object):
-	"""Computes and stores the average and current value"""
+		with torch.enable_grad():
+			loss = nn.CrossEntropyLoss()(model(X_pgd), y)
+		loss.backward()
+		eta = step_size * X_pgd.grad.data.sign()
+		X_pgd = Variable(X_pgd.data + eta, requires_grad=True)
+		eta = torch.clamp(X_pgd.data - X.data, -epsilon, epsilon)
+		X_pgd = Variable(X.data + eta, requires_grad=True)
+		X_pgd = Variable(torch.clamp(X_pgd, 0, 1.0), requires_grad=True)
+	err_pgd = (model(X_pgd).data.max(1)[1] != y.data).float().sum()
+	print('err pgd (white-box): ', err_pgd)
+	return err, err_pgd
 
-	def __init__(self, name, fmt=":f"):
-		self.name = name
-		self.fmt = fmt
-		self.reset()
+def eval_adv_test_whitebox(model, device, test_loader):
+	"""
+	evaluate model by white-box attack
+	"""
+	model.eval()
+	robust_err_total = 0
+	natural_err_total = 0
 
-	def reset(self):
-		self.val = 0
-		self.avg = 0
-		self.sum = 0
-		self.count = 0
-
-	def update(self, val, n=1):
-		self.val = val
-		self.sum += val * n
-		self.count += n
-		self.avg = self.sum / self.count
-
-	def __str__(self):
-		fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
-		return fmtstr.format(**self.__dict__)
-
-def accuracy(output, target, topk=(1,)):
-	"""Computes the accuracy over the k top predictions for the specified values of k"""
-	with torch.no_grad():
-		maxk = max(topk)
-		batch_size = target.size(0)
-
-		_, pred = output.topk(maxk, 1, True, True)
-		pred = pred.t()
-		correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-		res = []
-		for k in topk:
-			correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-			res.append(correct_k.mul_(100.0 / batch_size))
-		return res
+	for data, target in test_loader:
+		data, target = data.to(device), target.to(device)
+		# pgd attack
+		X, y = Variable(data, requires_grad=True), Variable(target)
+		err_natural, err_robust = _pgd_whitebox(model, X, y)
+		robust_err_total += err_robust
+		natural_err_total += err_natural
+	print('natural_err_total: ', natural_err_total)
+	print('robust_err_total: ', robust_err_total)
 
 if __name__ == "__main__":
 	main()
