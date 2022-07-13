@@ -20,6 +20,9 @@ import tqdm
 from torch import nn, optim
 from torchvision import datasets, transforms
 import torch
+import torch.nn.functional as F
+from torch.autograd import Variable
+import torch.optim as optim
 
 import resnet
 import mlflow
@@ -70,7 +73,7 @@ def get_arguments():
         help="number of total epochs to run",
     )
     parser.add_argument(
-        "--batch-size", default=256, type=int, metavar="N", help="mini-batch size"
+        "--batch-size", default=128, type=int, metavar="N", help="mini-batch size"
     )
     parser.add_argument(
         "--lr-backbone",
@@ -81,7 +84,7 @@ def get_arguments():
     )
     parser.add_argument(
         "--lr-head",
-        default=0.01,
+        default=0.001,
         type=float,
         metavar="LR",
         help="classifier base learning rate",
@@ -116,10 +119,10 @@ def get_arguments():
 
     return parser
 
+parser = get_arguments()
+args = parser.parse_args()
 
 def main():
-    parser = get_arguments()
-    args = parser.parse_args()
     #if args.train_percent in {1, 10}:
         #args.train_files = urllib.request.urlopen(
             #f"https://raw.githubusercontent.com/google-research/simclr/master/imagenet_subsets/{args.train_percent}percent.txt"
@@ -319,6 +322,7 @@ def main_worker(args):
 
     start_time = time.time()
     for epoch in tqdm.tqdm(range(start_epoch, args.epochs)):
+        adjust_learning_rate(optimizer, epoch)
         # train
         if args.weights == "finetune":
             model.train()
@@ -330,8 +334,9 @@ def main_worker(args):
         for step, (images, target) in enumerate(
             train_loader, start=epoch * len(train_loader)
         ):
-            output = model(images.cuda(gpu, non_blocking=True))
-            loss = criterion(output, target.cuda(gpu, non_blocking=True))
+            #output = model(images.cuda(gpu, non_blocking=True))
+            #loss = criterion(output, target.cuda(gpu, non_blocking=True))
+            loss = adv_loss(model, images.cuda(gpu, non_blocking=True), target.cuda(gpu, non_blocking=True))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -392,6 +397,93 @@ def main_worker(args):
             )
             torch.save(state, args.exp_dir / "checkpoint.pth")
 
+
+def adv_loss(model,
+                x_natural,
+                y,
+                step_size=0.007,
+                epsilon=0.031,
+                perturb_steps=10,
+                beta=1.0,
+                distance='l_inf'):
+    # define KL-loss
+    criterion_kl = nn.KLDivLoss(size_average=False)
+    model.eval()
+    batch_size = len(x_natural)
+    # generate adversarial example
+    x_adv = x_natural.detach() + 0.001 * torch.randn(x_natural.shape).cuda().detach()
+    if distance == 'l_inf':
+        for _ in range(perturb_steps):
+            x_adv.requires_grad_()
+            with torch.enable_grad():
+                loss_kl = criterion_kl(F.log_softmax(model(x_adv), dim=1),
+                                       F.softmax(model(x_natural), dim=1))
+            grad = torch.autograd.grad(loss_kl, [x_adv])[0]
+            x_adv = x_adv.detach() + step_size * torch.sign(grad.detach())
+            x_adv = torch.min(torch.max(x_adv, x_natural - epsilon), x_natural + epsilon)
+            x_adv = torch.clamp(x_adv, 0.0, 1.0)
+    elif distance == 'l_2':
+        delta = 0.001 * torch.randn(x_natural.shape).cuda().detach()
+        delta = Variable(delta.data, requires_grad=True)
+
+        # Setup optimizers
+        optimizer_delta = optim.SGD([delta], lr=epsilon / perturb_steps * 2)
+
+        for _ in range(perturb_steps):
+            adv = x_natural + delta
+
+            # optimize
+            optimizer_delta.zero_grad()
+            with torch.enable_grad():
+                loss = (-1) * criterion_kl(F.log_softmax(model(adv), dim=1),
+                                           F.softmax(model(x_natural), dim=1))
+            loss.backward()
+            # renorming gradient
+            grad_norms = delta.grad.view(batch_size, -1).norm(p=2, dim=1)
+            delta.grad.div_(grad_norms.view(-1, 1, 1, 1))
+            # avoid nan or inf if gradient is 0
+            if (grad_norms == 0).any():
+                delta.grad[grad_norms == 0] = torch.randn_like(delta.grad[grad_norms == 0])
+            optimizer_delta.step()
+
+            # projection
+            delta.data.add_(x_natural)
+            delta.data.clamp_(0, 1).sub_(x_natural)
+            delta.data.renorm_(p=2, dim=0, maxnorm=epsilon)
+        x_adv = Variable(x_natural + delta, requires_grad=False)
+    else:
+        x_adv = torch.clamp(x_adv, 0.0, 1.0)
+    model.train()
+
+    x_adv = Variable(torch.clamp(x_adv, 0.0, 1.0), requires_grad=False)
+
+    # calculate robust loss
+    logits = model(x_natural)
+    loss_natural = F.cross_entropy(logits, y)
+    loss_robust = (1.0 / batch_size) * criterion_kl(F.log_softmax(model(x_adv), dim=1),
+                                                    F.softmax(model(x_natural), dim=1))
+    loss = loss_natural + beta * loss_robust
+    return loss
+
+def adjust_learning_rate(optimizer, epoch):
+    """decrease the learning rate"""
+    lr_backbone = args.lr_backbone
+    lr_head = args.lr_head
+
+    if epoch >= 25:
+        lr_backbone = args.lr_backbone * 0.1
+        lr_head = args.lr_head * 0.1
+    if epoch >= 50:
+        lr_backbone = args.lr_backbone * 0.01
+        lr_head = args.lr_head * 0.01
+    if epoch >= 75:
+        lr_backbone = args.lr_backbone * 0.001
+        lr_head = args.lr_head * 0.001
+        
+    optimizer.param_groups[0]['lr'] = lr_head
+
+    if len(optimizer.param_groups) == 2:
+        optimizer.param_groups[1]['lr'] = lr_backbone
 
 def handle_sigusr1(signum, frame):
     os.system(f'scontrol requeue {os.getenv("SLURM_JOB_ID")}')
