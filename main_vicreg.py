@@ -25,7 +25,6 @@ from distributed import init_distributed_mode
 from pgd import pgd
 
 import trades_resnet as resnet
-import resnet
 import mlflow
 import mlflow.pytorch
 
