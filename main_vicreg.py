@@ -24,7 +24,7 @@ import augmentations as aug
 from distributed import init_distributed_mode
 from pgd import pgd
 
-import resnet
+import trades_resnet as resnet
 
 
 def get_arguments():
@@ -53,9 +53,9 @@ def get_arguments():
     # Optim
     parser.add_argument("--epochs", type=int, default=100,
                         help='Number of epochs')
-    parser.add_argument("--batch-size", type=int, default=256,
+    parser.add_argument("--batch-size", type=int, default=512,
                         help='Effective batch size (per worker batch size is [batch-size] / world-size)')
-    parser.add_argument("--base-lr", type=float, default=0.2,
+    parser.add_argument("--base-lr", type=float, default=0.1,
                         help='Base learning rate, effective learning after warmup is [base-lr] * [batch-size] / 256')
     parser.add_argument("--wd", type=float, default=1e-6,
                         help='Weight decay')
@@ -85,7 +85,7 @@ def get_arguments():
                         help='Add adversarial regularizer to loss')
     parser.add_argument("--adv-coeff", type=float, default=1.0,
                         help='Adversarial regularization loss coefficient')
-    parser.add_argument("--pgd-step-size", type=float, default=0.003,
+    parser.add_argument("--pgd-step-size", type=float, default=0.007,
                         help='PGD attack step size')
     parser.add_argument("--pgd-epsilon", type=float, default=0.031,
                         help='PGD attack budget')
@@ -215,7 +215,7 @@ def main(args):
             )
             torch.save(state, args.exp_dir / "model.pth")
     if args.rank == 0:
-        torch.save(model.state_dict(), args.exp_dir / args.arch + ".pth")
+        torch.save(model.state_dict(), args.exp_dir / (args.arch + ".pth"))
 
 
 def adjust_learning_rate(args, optimizer, loader, step):
