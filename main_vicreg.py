@@ -248,7 +248,7 @@ class VICReg(nn.Module):
             zero_init_residual=True
         )
         self.projector = Projector(args, self.embedding)
-        self.adv_train = True if args.adv_coeff > 0 else False
+        self.adv_train = args.adv_train
         self.model_stacked = nn.Sequential(self.backbone, self.projector)
 
         print("Architecture details:")
