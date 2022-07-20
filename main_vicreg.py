@@ -108,7 +108,7 @@ def get_arguments():
                         help='Probability of applying grayscale')
     parser.add_argument("--color-jitter-prob", type=float, default=0.8,
                         help='Probability of applying random crop')
-    parser.add_argument("--min-crop-area", type=float, default=0.08,
+    parser.add_argument("--min-crop-area", type=float, default=0.75,
                         help='Minimum crop area, as fraction of original area')
     parser.add_argument("--max-crop-area", type=float, default=1.0,
                         help='Maximum crop area, as fraction of original area')
