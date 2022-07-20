@@ -54,7 +54,7 @@ def get_arguments():
                         help='Size and number of layers of the MLP expander head')
 
     # Optim
-    parser.add_argument("--epochs", type=int, default=100,
+    parser.add_argument("--epochs", type=int, default=50,
                         help='Number of epochs')
     parser.add_argument("--batch-size", type=int, default=512,
                         help='Effective batch size (per worker batch size is [batch-size] / world-size)')
