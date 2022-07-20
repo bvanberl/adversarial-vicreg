@@ -25,6 +25,7 @@ from distributed import init_distributed_mode
 from pgd import pgd
 
 import trades_resnet as resnet
+import trades_wide_resnet as wide_resnet
 import mlflow
 import mlflow.pytorch
 
@@ -47,9 +48,9 @@ def get_arguments():
                         help='Print logs to the stats.txt file every [log-freq-time] seconds')
 
     # Model
-    parser.add_argument("--arch", type=str, default="resnet18",
+    parser.add_argument("--arch", type=str, default="wideresnet34",
                         help='Architecture of the backbone encoder network')
-    parser.add_argument("--mlp", default="512-512-512",
+    parser.add_argument("--mlp", default="640-640-640",
                         help='Size and number of layers of the MLP expander head')
 
     # Optim
@@ -244,9 +245,10 @@ class VICReg(nn.Module):
         super().__init__()
         self.args = args
         self.num_features = int(args.mlp.split("-")[-1])
-        self.backbone, self.embedding = resnet.__dict__[args.arch](
-            zero_init_residual=True
-        )
+        if "wide" in args.arch:
+            self.backbone, self.embedding = wide_resnet.__dict__[args.arch]()
+        else:
+            self.backbone, self.embedding = resnet.__dict__[args.arch]()
         self.projector = Projector(args, self.embedding)
         self.adv_train = args.adv_train
         self.model_stacked = nn.Sequential(self.backbone, self.projector)
