@@ -88,6 +88,8 @@ def get_arguments():
                         help='Add adversarial regularizer to loss')
     parser.add_argument("--adv-coeff", type=float, default=5.0,
                         help='Adversarial regularization loss coefficient')
+    parser.add_argument("--swap-adv-loss", default=False, action="store_true",
+                        help='Adversarial regularization loss coefficient')
     parser.add_argument("--pgd-step-size", type=float, default=0.007,
                         help='PGD attack step size')
     parser.add_argument("--pgd-epsilon", type=float, default=0.031,
@@ -297,8 +299,12 @@ class VICReg(nn.Module):
         z_y_adv = self.model_stacked(y_adv)
 
         # Compute VICReg loss for adversarial/natural pairs
-        x_adv_loss = self.vicreg_loss(z_x, z_y_adv)
-        y_adv_loss = self.vicreg_loss(z_y, z_x_adv)
+        if args.swap_adv_loss:
+            x_adv_loss = self.vicreg_loss(z_x, z_y_adv)
+            y_adv_loss = self.vicreg_loss(z_y, z_x_adv)
+        else:
+            x_adv_loss = self.vicreg_loss(z_x, z_x_adv)
+            y_adv_loss = self.vicreg_loss(z_y, z_y_adv)
         return (x_adv_loss + y_adv_loss) / 2.
 
 
