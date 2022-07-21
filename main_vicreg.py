@@ -48,9 +48,9 @@ def get_arguments():
                         help='Print logs to the stats.txt file every [log-freq-time] seconds')
 
     # Model
-    parser.add_argument("--arch", type=str, default="wideresnet34",
+    parser.add_argument("--arch", type=str, default="resnet18",
                         help='Architecture of the backbone encoder network')
-    parser.add_argument("--mlp", default="640-640-640",
+    parser.add_argument("--mlp", default="512-512-512",
                         help='Size and number of layers of the MLP expander head')
 
     # Optim
@@ -86,7 +86,7 @@ def get_arguments():
     # Adversarial training
     parser.add_argument("--adv-train", default=False, action="store_true",
                         help='Add adversarial regularizer to loss')
-    parser.add_argument("--adv-coeff", type=float, default=1.0,
+    parser.add_argument("--adv-coeff", type=float, default=5.0,
                         help='Adversarial regularization loss coefficient')
     parser.add_argument("--pgd-step-size", type=float, default=0.007,
                         help='PGD attack step size')
@@ -297,8 +297,8 @@ class VICReg(nn.Module):
         z_y_adv = self.model_stacked(y_adv)
 
         # Compute VICReg loss for adversarial/natural pairs
-        x_adv_loss = self.vicreg_loss(z_x, z_x_adv)
-        y_adv_loss = self.vicreg_loss(z_y, z_y_adv)
+        x_adv_loss = self.vicreg_loss(z_x, z_y_adv)
+        y_adv_loss = self.vicreg_loss(z_y, z_x_adv)
         return (x_adv_loss + y_adv_loss) / 2.
 
 
