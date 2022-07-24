@@ -86,6 +86,8 @@ def get_arguments():
     # Adversarial training
     parser.add_argument("--adv-train", default=False, action="store_true",
                         help='Add adversarial regularizer to loss')
+    parser.add_argument("--avg-inv", default=False, action="store_true",
+                        help='Evaluate average invariance')
     parser.add_argument("--adv-coeff", type=float, default=5.0,
                         help='Adversarial regularization loss coefficient')
     parser.add_argument("--swap-adv-loss", default=False, action="store_true",
@@ -253,11 +255,33 @@ class VICReg(nn.Module):
             self.backbone, self.embedding = resnet.__dict__[args.arch]()
         self.projector = Projector(args, self.embedding)
         self.adv_train = args.adv_train
+        self.avg_inv = args.avg_inv
         self.model_stacked = nn.Sequential(self.backbone, self.projector)
 
         print("Architecture details:")
         print(self.backbone)
         print(self.projector)
+
+    def inv_loss(self, x, z_x, y, z_y):
+
+        # Determine adversarial examples
+        x_adv = pgd(self.model_stacked, x, self.vicreg_loss, step_size=self.args.pgd_step_size, epsilon=self.args.pgd_epsilon,
+                    perturb_steps=self.args.pgd_perturb_steps, distance=self.args.pgd_distance)
+
+        y_adv = pgd(self.model_stacked, y, self.vicreg_loss, step_size=self.args.pgd_step_size, epsilon=self.args.pgd_epsilon,
+                    perturb_steps=self.args.pgd_perturb_steps, distance=self.args.pgd_distance)
+
+        # Compute embeddings for adversarial examples
+        z_x_adv = self.model_stacked(x_adv)
+        z_y_adv = self.model_stacked(y_adv)
+
+        repr_loss_1 = F.mse_loss(z_x, z_x_adv)
+        repr_loss_2 = F.mse_loss(z_y, z_y_adv)
+
+        print(repr_loss_1)
+        print(repr_loss_2)
+
+        return (repr_loss_1 + repr_loss_2)
 
     def vicreg_loss(self, x, y):
         repr_loss = F.mse_loss(x, y)
@@ -311,6 +335,9 @@ class VICReg(nn.Module):
     def forward(self, x, y):
         z_x = self.model_stacked(x)
         z_y = self.model_stacked(y)
+
+        if self.avg_inv:
+            return self.inv_loss(x, z_x, y, z_y)
 
         total_loss = self.vicreg_loss(z_x, z_y)
 
